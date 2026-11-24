@@ -1,0 +1,40 @@
+# Render Blueprint: free-tier API for the layout-preserving OCR app.
+#
+# PaddleOCR cannot run here (it needs ~2 GB; the `free` plan has 512 MB), so
+# this deployment serves digital PDFs: PyMuPDF parses them in-process and
+# scanned pages report that OCR is unavailable. Recognising scans needs a plan
+# with more memory.
+#
+# Deploy: Render Dashboard -> New -> Blueprint -> point at this repo.
+# Set CORS_ALLOWED_ORIGINS (your deployed frontend origin) when prompted.
+
+services:
+  - type: web
+    name: layout-preserving-ocr-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt && DJANGO_SECRET_KEY=build-only python backend/manage.py collectstatic --noinput
+    startCommand: python backend/manage.py migrate --noinput && gunicorn --chdir backend backend.wsgi --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120 --log-file -
+    healthCheckPath: /api/health/
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.10"
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_DEBUG
+        value: "False"
+      # Leading dot allows any *.onrender.com hostname (service URL + previews).
+      - key: DJANGO_ALLOWED_HOSTS
+        value: ".onrender.com"
+      # No separate file host on the free plan, so Django serves /media/.
+      - key: DJANGO_SERVE_MEDIA
+        value: "True"
+      - key: DJANGO_UPLOAD_MAX_FILE_SIZE
+        value: "20971520"
+      # Frontend (Vercel). Exact origin plus a regex so preview deployments work.
+      - key: CORS_ALLOWED_ORIGINS
+        value: https://layout-preserving-ocr.vercel.app
+      - key: CORS_ALLOWED_ORIGIN_REGEXES
+        value: "^https://layout-preserving-ocr[a-z0-9-]*\\.vercel\\.app$"
+      - key: DJANGO_CSRF_TRUSTED_ORIGINS
+        value: https://layout-preserving-ocr.vercel.app
